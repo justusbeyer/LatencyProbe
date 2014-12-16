@@ -54,7 +54,7 @@ void setup() {
   
   // prepare serial output
   Serial.begin(9600);
-  Serial.println("Time stamps are relatively to program start");
+  Serial.println("Time stamps are relative to program start");
 }
 
 void loop(){
