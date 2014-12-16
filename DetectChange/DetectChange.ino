@@ -1,7 +1,7 @@
 // CONFIGURATION
 const int PIN_PHOTOCELL = 5;        // the cell and 10K pulldown are connected to a5
 const int SAMPLE_FREQUENCY = 50000;  // nr of samples per second
-const int WINDOW_WIDTH = 100;        // Nr of samples that are looked at as part of the change determination
+const int WINDOW_WIDTH = 8;        // Nr of samples that are looked at as part of the change determination
 const int DETECTION_THRESHOLD = 100;
 
 const unsigned int sample_interval = (long)1000000 / SAMPLE_FREQUENCY;
@@ -59,6 +59,19 @@ bool detect_change()
   return (calculate_stddev() > DETECTION_THRESHOLD);
 }
 
+void print_values()
+{
+  Serial.println("Measured values:");
+  for (int offset=WINDOW_WIDTH; offset > 0; offset--)
+  {
+    char buf[5];
+    sprintf(buf, "%04d", sensor_values[(next_sample_pos-1-offset) % WINDOW_WIDTH]);
+    Serial.print(buf);
+    Serial.print(":");
+  }
+  Serial.println();   
+}
+
 void loop()
 {
   switch(state) {  
@@ -72,7 +85,10 @@ void loop()
       
     case LS_CALIBRATED:
       if(detect_change()) {
-        Serial.println("Change detected, recalibrating...");       
+        Serial.println("Change detected.");
+        print_values();
+        
+        // Recalibrate
         state = LS_CALIBRATING;
         next_sample_pos = 0;
       }
