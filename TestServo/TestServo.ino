@@ -1,5 +1,5 @@
 // CONFIGURATION
-const int PIN_BUTTON  = 2;
+const int PIN_BUTTON  = 7;
 const int PIN_SERVO   = 8;
 const int SERVO_POSITION_PRESS = 20;
 const int SERVO_POSITION_RELEASE = 29;
@@ -12,6 +12,7 @@ int current_servo_position = -1;
 void setup()
 {
   pinMode(PIN_BUTTON, INPUT);
+  pinMode(2, OUTPUT);
   
   servo.attach(PIN_SERVO);
   set_servo(SERVO_POSITION_RELEASE);
@@ -20,6 +21,7 @@ void setup()
 void loop()
 {
   int button_state = digitalRead(PIN_BUTTON);
+  digitalWrite(2, button_state);
   
   set_servo((button_state == HIGH) ? SERVO_POSITION_PRESS : SERVO_POSITION_RELEASE);
 }

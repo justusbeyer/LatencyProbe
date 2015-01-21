@@ -3,6 +3,7 @@ const int PIN_PHOTOCELL = 5;        // the cell and 10K pulldown are connected t
 const int SAMPLE_FREQUENCY = 50000;  // nr of samples per second
 const int WINDOW_WIDTH = 8;        // Nr of samples that are looked at as part of the change determination
 const int DETECTION_THRESHOLD = 100;
+const int PIN_CHANGE_SIGNAL_LED = 2; // This lights up when a change is detected.
 
 const unsigned int sample_interval = (long)1000000 / SAMPLE_FREQUENCY;
 // Data types
@@ -15,15 +16,18 @@ enum CALIBRATION_STATE
 // Data
 unsigned short sensor_values[WINDOW_WIDTH] = { 0 };
 unsigned short next_sample_pos = 0;
+unsigned long  timestamp = 0;
 
 void setup()
 {
+  pinMode(PIN_CHANGE_SIGNAL_LED, OUTPUT);
   Serial.begin(9600);
   
   Serial.print("Detecting change of light intensity measured by photocell connected to pin ");
   Serial.println(PIN_PHOTOCELL);
   
   state = LS_CALIBRATING;
+  timestamp = millis();
 }
 
 void sample()
@@ -80,11 +84,18 @@ void loop()
       {
         Serial.println("Calibrated, measuring...");
         state = LS_CALIBRATED;
+        
+        // Turn of signal LED
+        digitalWrite(PIN_CHANGE_SIGNAL_LED, LOW);
       }
       break;
       
     case LS_CALIBRATED:
       if(detect_change()) {
+        
+        // Turn on signal LED
+        digitalWrite(PIN_CHANGE_SIGNAL_LED, HIGH);        
+        
         Serial.println("Change detected.");
         print_values();
         
@@ -94,6 +105,6 @@ void loop()
       }
       break;
   }
-
+  
   delayMicroseconds(sample_interval);
 }

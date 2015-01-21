@@ -1,143 +1,160 @@
-/* Cloudgaming motion sensor
+// CONFIGURATION
+const int PIN_PHOTOCELL = 5;        // the cell and 10K pulldown are connected to a5
+const int PIN_BUTTON  = 7;
+const int PIN_SERVO   = 8;
+const int PIN_CHANGE_SIGNAL_LED = 2; // This lights up when a change is detected.
 
-   - arduino button is pressed and starts servo
-   - servo is pressing a key (on keyboard to move character) -> start timer
-   - action is processed by cloud gaming plattform
-   - the photo sensor detects changes in light -> end timer
-   - time difference is real latency for gamer
- 
-  created 20 Nov 2014
-  by Richard Varbelow
-*/
-#include <Servo.h> 
+const int SERVO_POSITION_PRESS = 20;
+const int SERVO_POSITION_RELEASE = 29;
 
-// connected pins
-const int buttonPin = 2;     // the number of the pushbutton pin
-const int ledPin =  13;      // the number of the LED pin
-const int photocellPin = 5;  // the cell and 10K pulldown are connected to a5
- 
-Servo myservo;  // create servo object to control a servo 
-                // a maximum of eight servo objects can be created 
-int pos = 0;    // variable to store the servo position
+const int SAMPLE_FREQUENCY = 50000;  // nr of samples per second
+const int WINDOW_WIDTH = 8;        // Nr of samples that are looked at as part of the change determination
+const int DETECTION_THRESHOLD = 100;
 
-// pushbutton status
-int buttonState = 0;
-//int lastState = 0;
+const unsigned int sample_interval = (long)1000000 / SAMPLE_FREQUENCY;
+// Data types
+enum CALIBRATION_STATE
+{
+  LS_CALIBRATING = 0,
+  LS_CALIBRATED  = 1
+} state;
 
-// time differences
-unsigned long time;
-unsigned long differenceDetectedTime;
-int measurementCycles = 25;
-int cycleCounter = 0;
-unsigned long maximumWaitingDelay = 1000; // waiting for cloud gaming processing and servor movements
-unsigned long servoResetDelay = 100; // waiting for cloud gaming processing and servor movements
-unsigned long averagedDelay = 0;
+// Data
+unsigned short sensor_values[WINDOW_WIDTH] = { 0 };
+unsigned short next_sample_pos = 0;
+unsigned long  timestamp_button_press = 1; // 0: Ready to perform measurements, 1: awaiting calibration, millis(): timestamp of button press
 
-// photo sensor
-int photocellReading;
-int photocellLastValue = 0;
-const int photoSensitivity = 15;   // sensitivity to sensor changes
-boolean motionDetectionAborted = false;
+#include <Servo.h>
+Servo servo;
+int current_servo_position = -1;
 
-void setup() {
-  // initialize the LED pin as an output:
-  pinMode(ledPin, OUTPUT);      
-  // initialize the pushbutton pin as an input:
-  pinMode(buttonPin, INPUT);
+void setup()
+{
+  pinMode(PIN_CHANGE_SIGNAL_LED, OUTPUT);
+  pinMode(PIN_BUTTON, INPUT);
   
-  // attaches the servo on pin 8 to the servo object 
-  myservo.attach(8);
-  myservo.write(0);
+  servo.attach(PIN_SERVO);
+  set_servo(SERVO_POSITION_RELEASE);
   
-  // set comparison value for photo sensor
-//  photocellLastValue = analogRead(photocellPin);
-  
-  // prepare serial output
   Serial.begin(9600);
-  Serial.println("Time stamps are relative to program start");
+  
+  Serial.print("Detecting change of light intensity measured by photocell connected to pin ");
+  Serial.println(PIN_PHOTOCELL);
+  
+  state = LS_CALIBRATING;
 }
 
-void loop(){
-  // TODO use two servos to go back and forth, make bigger delays to let the player stop his movement
-  // TODO tidy up code
-  
-  // read the state of button and sensor:
-  buttonState = digitalRead(buttonPin);
-  
-  if(buttonState == HIGH){
-    cycleCounter = measurementCycles;
-  }
-  
-  if(cycleCounter != 0){
-    if(cycleCounter == measurementCycles){
-      averagedDelay = 0;
-    }
-    digitalWrite(ledPin, HIGH);
-    photocellReading = analogRead(photocellPin);
-    myservo.write(20);
-    time = millis(); // measure time after servo is set to compensate inertia of servo (at least a little)
-//    Serial.print("starting time: ");
-//    Serial.println(time);
+void sample()
+{
+  sensor_values[next_sample_pos] = analogRead(PIN_PHOTOCELL);
+  next_sample_pos = (next_sample_pos + 1) % WINDOW_WIDTH;
+}
 
-    // read data first before checking condition
-    do{
-      photocellLastValue = photocellReading;
-      photocellReading = analogRead(photocellPin);
-      // keep for debugging
-      // WARNING: due to a hardwired 20ms delay in the rxtx library used in java, using the serial output slows
-      // down and therefore distorts the measurements! (see http://neophob.com/2011/04/serial-latency-teensy-vs-arduino/) 
-//       Serial.print("Analog reading: last value = ");
-//       Serial.print(photocellLastValue);
-//       Serial.print("; current value = ");
-//       Serial.println(photocellReading);
-
-      // break loop when delay becomes too big and would be unrealistic in cloud gaming
-      if((time+maximumWaitingDelay) < millis()){
-//        Serial.println(time+maximumWaitingDelay);
-        motionDetectionAborted = true;
-        break;
-      }
-      
-    }
-    // read photo cell data as long as there is no difference
-    // +- value of sensitivity compared to last value --> motion
-    while(!((photocellReading > (photocellLastValue + photoSensitivity))
-         || (photocellReading < (photocellLastValue - photoSensitivity))));
-    if(!motionDetectionAborted){
-      differenceDetectedTime = millis();
-        Serial.println("---------------motion detected---------------");
-//          Serial.print("difference time: ");
-//          Serial.print(differenceDetectedTime);
-//          Serial.print(" / time: ");
-//          Serial.println(time);
-        Serial.print("photo data: last value=");
-        Serial.print(photocellLastValue);
-        Serial.print(", current value=");
-        Serial.println(photocellReading);
-        Serial.print("time difference: ");
-        Serial.print(differenceDetectedTime - time);
-        Serial.print("ms, cycles: ");
-        Serial.print(measurementCycles-cycleCounter+1);
-        Serial.print("/");
-        Serial.println(measurementCycles);
-        Serial.println("---------------------------------------------");
-        averagedDelay += (differenceDetectedTime - time);
-        cycleCounter--;
-        if(cycleCounter == 0){
-          Serial.print("--> averaged cloud gaming delay: ");
-          Serial.print(averagedDelay/measurementCycles); 
-          Serial.println("ms");
-        }
-    } else{
-       Serial.println(">motion detection aborted (too high latency)<");
-       Serial.println(">-----------------try again-----------------<");
-       motionDetectionAborted = false;
-    }
-    // either way, set back the servo
-    myservo.write(0);
-    delay(servoResetDelay);
+float calculate_stddev()
+{
+    float mean=0.0, sum_deviation=0.0;
+    int i;
+    for(i=0; i<WINDOW_WIDTH; i++)
+        mean += sensor_values[i];
+        
+    mean=mean / WINDOW_WIDTH;
     
-  } else{
-    digitalWrite(ledPin,LOW);
+    for(i=0; i < WINDOW_WIDTH; i++)
+      sum_deviation += (sensor_values[i] - mean) * (sensor_values[i]-mean);
+    return sqrt(sum_deviation/WINDOW_WIDTH);           
+}
+
+// Fill the sensor_values array with meaningful data
+bool calibrate()
+{
+  sample();
+  return (next_sample_pos == 0);
+}
+
+bool detect_change()
+{
+  sample();
+  return (calculate_stddev() > DETECTION_THRESHOLD);
+}
+
+void set_servo(int servo_position)
+{
+  if (servo_position != current_servo_position)
+  {
+    current_servo_position = servo_position;
+    servo.write(servo_position);
   }
+}
+
+void print_values()
+{
+  Serial.println("Measured values:");
+  for (int offset=WINDOW_WIDTH; offset > 0; offset--)
+  {
+    char buf[5];
+    sprintf(buf, "%04d", sensor_values[(next_sample_pos-1-offset) % WINDOW_WIDTH]);
+    Serial.print(buf);
+    Serial.print(":");
+  }
+  Serial.println();   
+}
+
+void loop()
+{
+  switch(state) {  
+    case LS_CALIBRATING:
+      if(calibrate())
+      {
+        Serial.println("Calibrated, measuring...");
+        state = LS_CALIBRATED;
+        
+        // Turn of signal LED
+        digitalWrite(PIN_CHANGE_SIGNAL_LED, LOW);
+        
+        // ready for new measurements
+        timestamp_button_press = 0;
+      }
+      break;
+      
+    case LS_CALIBRATED:
+      if(detect_change()) {
+        // change detected
+        unsigned long measured_delay = 0;
+        
+        // If the button was pressed and the true measurement is running,
+        // the observed change should correspond to our input action and
+        // we can measure the delay now.
+        if (timestamp_button_press > 1)
+          measured_delay = millis() - timestamp_button_press;
+        
+        // Turn on signal LED
+        digitalWrite(PIN_CHANGE_SIGNAL_LED, HIGH);        
+        
+        Serial.println("Change detected.");
+        print_values();
+        
+        if (measured_delay > 0) {
+          Serial.print("Seen delay: ");
+          Serial.print(measured_delay);
+          Serial.println("ms.");
+        }
+        
+        // Recalibrate
+        state = LS_CALIBRATING;
+        next_sample_pos = 0;
+      }
+      break;
+  }
+  
+  // Move servo depending on button input
+  int button_state = digitalRead(PIN_BUTTON);
+  set_servo((button_state == HIGH) ? SERVO_POSITION_PRESS : SERVO_POSITION_RELEASE);
+  if ((button_state == HIGH) && (timestamp_button_press == 0)) {
+    timestamp_button_press = millis();
+  }
+  else if ((button_state == LOW) && (timestamp_button_press > 1)) {
+    timestamp_button_press = 0;
+  }
+  
+  delayMicroseconds(sample_interval);
 }
