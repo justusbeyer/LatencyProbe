@@ -4,7 +4,7 @@ const int PIN_SERVO   = 8;
 const int SERVO_POSITION_PRESS = 20;
 const int SERVO_POSITION_RELEASE = 29;
 
-#include <Servo.h> 
+#include <Servo.h>
 
 Servo servo;
 int current_servo_position = -1;
