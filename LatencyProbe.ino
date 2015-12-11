@@ -1,20 +1,14 @@
 // CONFIGURATION
 const int PIN_PHOTOCELL = 1;        // the cell and 10K pulldown are connected to a5
 const int PIN_BUTTON  = 7;
-const int PIN_SERVO   = 8;
-// const int PIN_CHANGE_SIGNAL_LED = 2; // This lights up when a change is detected.
-
 const int PIN_LED_MEASUREMENT_RUNNING = 20;
 
 // TFT
 const int PIN_TFT_DC = 9;
 const int PIN_TFT_CS = 10;
 
-const int SERVO_POSITION_PRESS = 20;
-const int SERVO_POSITION_RELEASE = 29;
-
 const unsigned long SAMPLE_FREQUENCY = 3000;  // nr of samples per second
-const int WINDOW_WIDTH = 8;        // Nr of samples that are looked at as part of the change determination
+const int WINDOW_WIDTH = 8;        // Nr of samples that are looked at as part of the change determination (i.e. when the system under test responds)
 const int DETECTION_THRESHOLD = 100;
 
 // Data types
@@ -25,49 +19,43 @@ enum CALIBRATION_STATE
 } state;
 
 // Data
-unsigned short sensor_values[WINDOW_WIDTH] = { 0 };
-unsigned short next_sample_pos = 0;
-unsigned long  timestamp_button_press = 1; // 0: Ready to perform measurements, 1: awaiting calibration, millis(): timestamp of button press
+unsigned short      sensor_values[WINDOW_WIDTH] = { 0 };
+unsigned short      next_sample_pos = 0;
+unsigned long       timestamp_button_press = 1; // 0: Ready to perform measurements, 1: awaiting calibration, millis(): timestamp of button press
 
-const unsigned int sample_interval = (unsigned long)1000000 / SAMPLE_FREQUENCY;
-unsigned long  timestamp_last_sample = 0; // 0: not sample yet since calibration
-unsigned long  measured_sample_interval = 0; // 0: no valid measurement (yet)
-unsigned long  sample_delay = sample_interval; // This is the time in microseconds the main loop waits after each execution
+const unsigned int  sample_interval = (unsigned long)1000000 / SAMPLE_FREQUENCY;
+unsigned long       timestamp_last_sample = 0; // 0: not sample yet since calibration
+unsigned long       measured_sample_interval = 0; // 0: no valid measurement (yet)
+unsigned long       sample_delay = sample_interval; // This is the time in microseconds the main loop waits after each execution
 
-unsigned int detection_theshold = DETECTION_THRESHOLD; // initial threshold
+unsigned int        detection_theshold = DETECTION_THRESHOLD; // initial threshold
 
 #include "SPI.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
-#include <Servo.h>
 
-Servo servo;
-int current_servo_position = -1;
+#include <Mouse.h>
 
 // Use hardware SPI (on Uno, #13, #12, #11) and the above for CS/DC
 Adafruit_ILI9341 tft = Adafruit_ILI9341(PIN_TFT_CS, PIN_TFT_DC);
 
 void print(char* msg)
 {
-  //Serial.print(msg);
   tft.print(msg);
 }
 
 void println(char* msg)
 {
-  //Serial.println(msg);
   tft.println(msg);
 }
 
 void print(long unsigned int val)
 {
-  //Serial.print(val);
   tft.print(val);
 }
 
 void println(long unsigned int val)
 {
-  //Serial.println(val);
   tft.println(val);
 }
 
@@ -81,13 +69,9 @@ void setup()
 {
   delay(2000);
   
-  // pinMode(PIN_CHANGE_SIGNAL_LED, OUTPUT);
   pinMode(PIN_BUTTON, INPUT/*_PULLUP*/);
   pinMode(PIN_LED_MEASUREMENT_RUNNING, OUTPUT);
   digitalWrite(PIN_LED_MEASUREMENT_RUNNING, LOW);
-  
-  servo.attach(PIN_SERVO);
-  set_servo(SERVO_POSITION_RELEASE);
   
   Serial.begin(115200);
 
@@ -131,16 +115,6 @@ unsigned int calculate_stddev()
     sum_deviation += sq(sensor_values[i] - mean);
     
   return sum_deviation;
-    /*float mean=0.0, sum_deviation=0.0;
-    int i;
-    for(i=0; i<WINDOW_WIDTH; i++)
-        mean += sensor_values[i];
-        
-    mean=mean / WINDOW_WIDTH;
-    
-    for(i=0; i < WINDOW_WIDTH; i++)
-      sum_deviation += (sensor_values[i] - mean) * (sensor_values[i]-mean);
-    return sqrt(sum_deviation/WINDOW_WIDTH);*/
 }
 
 // Fill the sensor_values array with meaningful data
@@ -172,15 +146,6 @@ bool detect_change()
   return (calculate_stddev() > detection_theshold);
 }
 
-void set_servo(int servo_position)
-{
-  if (servo_position != current_servo_position)
-  {
-    current_servo_position = servo_position;
-    servo.write(servo_position);
-  }
-}
-
 void print_values()
 {
   println("Measured values:");
@@ -203,9 +168,6 @@ void loop()
         print("Calibrated. ");
         state = LS_CALIBRATED;
         timestamp_last_sample = 0;
-        
-        // Turn of signal LED
-        // digitalWrite(PIN_CHANGE_SIGNAL_LED, LOW);
         
         // ready for new measurements
         timestamp_button_press = 0;
@@ -247,14 +209,7 @@ void loop()
           print("sr: ");
           print(1000000L / measured_sample_interval);
           println("Hz");
-          /*print("Confed SI: ");
-          print(sample_interval);
-          println("us");*/
-          /*print("Sample Delay: ");
-          print(sample_delay);
-          println("us");*/
           print_values();
-          // delay(100);
         }
         
         // Recalibrate
@@ -264,32 +219,35 @@ void loop()
       break;
   }
   
-  // Move servo depending on button input
+  // Poll for the trigger (button) to start measuring
   int button_state = digitalRead(PIN_BUTTON);
-  // set_servo((button_state == HIGH) ? SERVO_POSITION_PRESS : SERVO_POSITION_RELEASE);
   if ((button_state == HIGH) && (timestamp_button_press == 0) && (state == LS_CALIBRATED)) {
+    // Time to start the test.
+
+    // If you want the Arduino to create Mouse / Keyboard / whatever events, now is the time:
+    
+    // To initiate a click, uncomment the following line:
     //Mouse.click();
+
+    // To initiate a longer-lasting click uncomment the following line instead and do not forget to uncomment the delay+release line below as well.
     //Mouse.press();
+
+    // Rember this the timestamp of this moment for later computation of the delay
     timestamp_button_press = millis();
+
+    // Signal using the connected LED that a measurement is now running
     digitalWrite(PIN_LED_MEASUREMENT_RUNNING, HIGH);
-    //delay(40);
-    //Mouse.release();
+
+    // The following line is just necessary when you used the 'manual' click method with press() and release():
+    // delay(40); Mouse.release();
   }
   else if ((button_state == LOW) && (timestamp_button_press > 1) && (timestamp_last_sample/1000 - timestamp_button_press > 1000 /* max delay */)) {
+    // Stop measuring
     timestamp_button_press = 0;
     digitalWrite(PIN_LED_MEASUREMENT_RUNNING, LOW);
   }
   
   // Compute the right sleep time to achieve the desired sampling frequency
-  /*if (measured_sample_interval > 0 &&
-      abs(measured_sample_interval - sample_interval) > 0)
-  {
-    long correction = ((long)sample_interval - (long)measured_sample_interval) / 2L;
-    if (-correction > sample_delay)
-      sample_delay = 0;
-    else
-      sample_delay += correction;
-  }*/
   if (measured_sample_interval > 0)
   {
     if (measured_sample_interval > sample_interval && sample_delay > 0)
@@ -300,3 +258,4 @@ void loop()
   
   delayMicroseconds(sample_delay);
 }
+
